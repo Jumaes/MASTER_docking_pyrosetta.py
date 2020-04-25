@@ -9,3 +9,32 @@
 #Step2: Use MASTER to search for hits within a very narrow RMSD for every one of the pdb files from Step1. The Library against which is searched will be a non-redundant subset of the PDB with roughly 40 000 structures. Write out a number for the hits for each structure (potentially several different RMSD cutoffs for this?).
 
 #Step3: Combined all the numbers of hits with the different parameters of DF into a massive pandas DataFrame and produce some maybe graphical output.
+
+import math
+
+#Step 1:
+
+
+#Input Parameters
+input_pdb = ''  #File with input conformation of the minimized structural motifs.
+input_number_of_conformations = 10000 #Number of different conformations that should be generated and tested. This will be crucial to determine how long it will take.
+
+#Note: For the moment the axes and angles will just be applied to the jump and they are most likely not global x,y,z coordinates or angles, but might be local. If control over axes/angles is desired, might need to be taken care off later.
+# If a DF should not be designable, just put 0.
+dev_x_translate = 4 #Total translation in x axis in A. Together with number_of_conformations this will also determine the stepsize for this DF. 4 means 2A in each direction from starting conformation.
+dev_y_translate = 4
+dev_z_translate = 4
+
+dev_alpha_rotate = 10 # Similar to translate, just this is the total angle in degree to be screened for this DF.
+dev_beta_rotate = 10
+dev_gamma_rotate = 10
+
+designable_DF = 0
+for a in [dev_x_translate,dev_y_translate,dev_z_translate,dev_alpha_rotate,dev_beta_rotate,dev_gamma_rotate]:
+    if a != 0: designable_DF += 1 # Just counts how many DF are supposed to be designable.
+
+steps_per_DF = int(math.floor(input_number_of_conformations ** (1. /designable_DF))) # This basically takes the root to the power of designable_DF and then returns the integer always rounding down to see with the given number_of_conformations, how many steps can be done per DF.
+
+number_of_conformations = steps_per_DF ** designable_DF
+
+print ('Requested %s conformations to be checked using %s degrees of freedom. %s steps per degree of freedom can be checked giving a total of %s conformations. With %s steps per DF, %s conformations would need to be checked.' %(input_number_of_conformations, designable_DF,steps_per_DF, number_of_conformations,steps_per_DF+1,(steps_per_DF+1) ** designable_DF ))
