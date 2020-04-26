@@ -12,12 +12,22 @@
 
 import math
 
+from pyrosetta import *
+from rosetta import *
+from rosetta.numeric import xyzVector_double_t
+from pyrosetta.rosetta.protocols.geometry import centroids_by_jump
+
+import numpy
+
+init()
+
 #Step 1:
 
 
 #Input Parameters
-input_pdb = ''  #File with input conformation of the minimized structural motifs.
-input_number_of_conformations = 10000 #Number of different conformations that should be generated and tested. This will be crucial to determine how long it will take.
+input_pdb = 'NCFus_model2_parts.pdb'  #File with input conformation of the minimized structural motifs.
+input_number_of_conformations = 1000 #Number of different conformations that should be generated and tested. This will be crucial to determine how long it will take.
+subfolder = 'pdb_models/'
 
 #Note: For the moment the axes and angles will just be applied to the jump and they are most likely not global x,y,z coordinates or angles, but might be local. If control over axes/angles is desired, might need to be taken care off later.
 # If a DF should not be designable, just put 0.
@@ -29,6 +39,10 @@ dev_alpha_rotate = 10 # Similar to translate, just this is the total angle in de
 dev_beta_rotate = 10
 dev_gamma_rotate = 10
 
+jump_to_move = 1
+
+# Now calculating a few numbers, which derive from that.
+
 designable_DF = 0
 for a in [dev_x_translate,dev_y_translate,dev_z_translate,dev_alpha_rotate,dev_beta_rotate,dev_gamma_rotate]:
     if a != 0: designable_DF += 1 # Just counts how many DF are supposed to be designable.
@@ -38,3 +52,120 @@ steps_per_DF = int(math.floor(input_number_of_conformations ** (1. /designable_D
 number_of_conformations = steps_per_DF ** designable_DF
 
 print ('Requested %s conformations to be checked using %s degrees of freedom. %s steps per degree of freedom can be checked giving a total of %s conformations. With %s steps per DF, %s conformations would need to be checked.' %(input_number_of_conformations, designable_DF,steps_per_DF, number_of_conformations,steps_per_DF+1,(steps_per_DF+1) ** designable_DF ))
+
+#Now we need to make the different conformations as pdb files using pyrosetta:
+start = Pose()
+pose_from_file(start, input_pdb)
+jumppoint1 = start.pdb_info().pdb2pose('A',105)  # Residue one first chain to jump from to the other chain.
+jumppoint2 = start.pdb_info().pdb2pose('E',56) # Reside on second Chain to jump to.
+for i in range(2,start.__len__()):
+    if start.residue(i).is_upper_terminus():
+        end1 = i
+        start2 = i+1
+        break
+#print ('end1:' +str(end1))
+#print ('start2:' +str(start2))
+#print ('jumppoint1:' +str(jumppoint1))
+#print ('jumppoint2:' +str(jumppoint2))
+
+ft=FoldTree()
+ft.add_edge(jumppoint1,jumppoint2, 1)
+ft.add_edge(jumppoint1,1,-1)
+if jumppoint1 != end1:
+    ft.add_edge(jumppoint1,end1,-1)
+
+ft.add_edge(jumppoint2,start.__len__(), -1)
+if jumppoint2 != start2:
+    ft.add_edge(jumppoint2,start2, -1)
+#print (ft)
+if ft.check_fold_tree(): #Just making sure this is old done when foldtree is ok, because otherwise it immediately segfaults.
+    start.fold_tree(ft)
+
+workpose = Pose()
+workpose.assign(start)
+# Now need to apply the DF changes to the pose.
+
+def one_or_zero(numberin):
+    if numberin.__nonzero__():
+        output = 1
+    else:
+        output = 0
+    return output
+
+def move_pose(inputpose,inputjump,movex,movey,movez,rota,rotb,rotg):
+    functionpose = Pose()
+    functionpose.assign(inputpose)
+    angle = rota+rotb+rotg #Assuming that only one of them is not 0 anyways.
+    distance = movex + movey + movez
+    # Relatively complicated movers.
+    # We need the jumpobject corresponding to the given jumpnumber.
+    flexible_jump=functionpose.jump(inputjump)
+    #We need the stubs of the protein on either side if the jump, if we wanna move them.
+    upstream_stub=functionpose.conformation().upstream_jump_stub(inputjump)
+    downstream_stub=functionpose.conformation().downstream_jump_stub(inputjump)
+    #Need to find the rotation centres for rotating the upstream and downstream stubs respectively; they also depend on the jump and the workpose.
+    upstream_dummy=xyzVector_double_t() #Just need to define that these are vectors of that weird type.
+    downstream_dummy=xyzVector_double_t()
+    centroids_by_jump(functionpose,inputjump,upstream_dummy,downstream_dummy) #This function does the job for us.
+    #Rotation axis is only 1 in the one direction, where we wanna rotate around. I.e. the only angle, that is not 0.
+    rota_axis=xyzVector_double_t(one_or_zero(rota),one_or_zero(rotb),one_or_zero(rotg))
+    #print ('Attempting to rotate around axis %s by %s degree.' %(rota_axis, angle))
+    # rotation_by_axis works with stub: pyrosetta.rosetta.core.kinematics.Stub, axis: pyrosetta.rosetta.numeric.xyzVector_double_t, center: pyrosetta.rosetta.numeric.xyzVector_double_t, alpha: float
+    if angle != 0: # Seems applying both at the same time on the jump doesn't work. Also means the function can only be used with either angle or distance, but in the way it's going to be used, that's ok.
+        flexible_jump.rotation_by_axis(upstream_stub, rota_axis,upstream_dummy,angle)
+    translation_axis = xyzVector_double_t(one_or_zero(movex),one_or_zero(movey),one_or_zero(movez))
+    #print ('Attempting to translate along axis %s by %s angstrom.' %(translation_axis, distance))
+    #stub: pyrosetta.rosetta.core.kinematics.Stub, axis: pyrosetta.rosetta.numeric.xyzVector_double_t, dist: float
+    if distance != 0:
+        flexible_jump.translation_along_axis(upstream_stub,translation_axis,distance)
+    #print (flexible_jump)
+    #print (functionpose.residue(20))
+    functionpose.set_jump(inputjump, flexible_jump ) # This is actually applying the jump to the pose.
+    #print (functionpose.residue(20))
+    centroids_by_jump(functionpose,inputjump,upstream_dummy,downstream_dummy)
+    return functionpose
+
+def make_steps(translate,steps):
+    return [(-float(translate)/2)+float(translate)/(float(steps)-1)*number for number in range(0,steps)]
+
+x_steps = make_steps(dev_x_translate,steps_per_DF)
+y_steps = make_steps(dev_y_translate,steps_per_DF)
+z_steps = make_steps(dev_z_translate,steps_per_DF)
+a_steps = make_steps(dev_alpha_rotate,steps_per_DF)
+b_steps = make_steps(dev_beta_rotate, steps_per_DF)
+g_steps = make_steps(dev_gamma_rotate, steps_per_DF)
+
+try:
+    os.mkdir(subfolder)
+except:
+    pass
+
+counter = 0
+for x in x_steps:
+    workpose = move_pose(workpose,jump_to_move,x,0,0,0,0,0)
+    for y in y_steps:
+        workpose = move_pose(workpose,jump_to_move,0,y,0,0,0,0)
+        for z in z_steps:
+            workpose = move_pose(workpose,jump_to_move,0,0,z,0,0,0)
+            for a in a_steps:
+                workpose = move_pose(workpose,jump_to_move,0,0,0,a,0,0)
+                for b in b_steps:
+                    workpose = move_pose(workpose,jump_to_move,0,0,0,0,b,0)
+                    for g in g_steps:
+                        workpose = move_pose(workpose,jump_to_move,0,0,0,0,0,g)
+                        workpose.dump_pdb('%s%s_%s.pdb' %(subfolder, input_pdb[:-4],counter))
+                        with open('%s%s_%s.pdb' %(subfolder, input_pdb[:-4],counter),'a') as fout:
+                            fout.write('REMARK %f %f %f %f %f %f \n' %(x,y,z,a,b,g))
+                        counter += 1
+'''
+workpose.dump_pdb('%s%s_%s_%s_%s_%s_%s.pdb', %s(subfolder,input_pdb,x,y,z,a,b,g))
+
+newthing = move_pose(start,1,10,0,0,0,0,0)
+newthing.dump_pdb('tester.pdb')
+
+
+ stub: pyrosetta.rosetta.core.kinematics.Stub, axis: pyrosetta.rosetta.numeric.xyzVector_double_t, center: pyrosetta.rosetta.numeric.xyzVector_double_t, alpha: float
+
+    flexible_jump.translation_along_axis
+stub: pyrosetta.rosetta.core.kinematics.Stub, axis: pyrosetta.rosetta.numeric.xyzVector_double_t, dist: float
+'''
