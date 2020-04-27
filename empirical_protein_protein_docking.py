@@ -19,6 +19,8 @@ from pyrosetta.rosetta.protocols.geometry import centroids_by_jump
 
 import numpy
 
+import glob
+
 init()
 
 #Step 1:
@@ -28,6 +30,8 @@ init()
 input_pdb = 'NCFus_model2_parts.pdb'  #File with input conformation of the minimized structural motifs.
 input_number_of_conformations = 1000 #Number of different conformations that should be generated and tested. This will be crucial to determine how long it will take.
 subfolder = 'pdb_models/'
+master_program_folder = '/media/tezcanlab/Data/Julian/programs/master/master-v1.3.1/'
+query_pds_subfolder = 'query_pds_files/'
 
 #Note: For the moment the axes and angles will just be applied to the jump and they are most likely not global x,y,z coordinates or angles, but might be local. If control over axes/angles is desired, might need to be taken care off later.
 # If a DF should not be designable, just put 0.
@@ -157,6 +161,23 @@ for x in x_steps:
                         with open('%s%s_%s.pdb' %(subfolder, input_pdb[:-4],counter),'a') as fout:
                             fout.write('REMARK %f %f %f %f %f %f \n' %(x,y,z,a,b,g))
                         counter += 1
+
+#Step2: Use MASTER to search for hits within a very narrow RMSD for every one of the pdb files from Step1. The Library against which is searched will be a non-redundant subset of the PDB with roughly 40 000 structures. Write out a number for the hits for each structure (potentially several different RMSD cutoffs for this?).
+query_pdbs_list = glob.glob(subfolder+'*.pdb') # Get a list of all actually created pdb files.
+try:
+    os.mkdir(query_pds_subfolder) # As usual make subfolder for the pds query files, that master needs to actually then search.
+except:
+    pass
+
+for file in query_pdbs_list: # Next line makes a query pds file from every pdb file and puts the pds files into the new subfolder. That's pretty fast with several files per seconds.
+    os.system('%screatePDS --type query --pdb %s --pds %s%s.pds' %(master_program_folder,file, query_pds_subfolder,file[:-4].split('/')[-1]))
+
+query_pds_list = glob.glob(query_pds_subfolder+'*.pds')
+library_file_list = #TODO!!!
+for file in query_pds_list:
+    os.system('%smaster --query %s --targetList %s --rmsdCut  ' %(file,library_file_list))
+
+
 '''
 workpose.dump_pdb('%s%s_%s_%s_%s_%s_%s.pdb', %s(subfolder,input_pdb,x,y,z,a,b,g))
 
