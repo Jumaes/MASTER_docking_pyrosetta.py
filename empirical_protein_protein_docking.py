@@ -31,7 +31,7 @@ init()
 
 #Input Parameters
 input_pdb = 'NCFus_model2_parts.pdb'  #File with input conformation of the minimized structural motifs.
-input_number_of_conformations = 1000 #Number of different conformations that should be generated and tested. This will be crucial to determine how long it will take.
+input_number_of_conformations = 10000 #Number of different conformations that should be generated and tested. This will be crucial to determine how long it will take.
 subfolder = 'pdb_models/'
 master_program_folder = '/media/tezcanlab/Data/Julian/programs/master/master-v1.3.1/'
 query_pds_subfolder = 'query_pds_files/'
@@ -39,13 +39,13 @@ query_library_path = '/media/tezcanlab/Data/PDBdata/70ident_20200423/master_pds_
 
 #Note: For the moment the axes and angles will just be applied to the jump and they are most likely not global x,y,z coordinates or angles, but might be local. If control over axes/angles is desired, might need to be taken care off later.
 # If a DF should not be designable, just put 0.
-dev_x_translate = 4 #Total translation in x axis in A. Together with number_of_conformations this will also determine the stepsize for this DF. 4 means 2A in each direction from starting conformation.
-dev_y_translate = 4
-dev_z_translate = 4
+dev_x_translate = 6 #Total translation in x axis in A. Together with number_of_conformations this will also determine the stepsize for this DF. 4 means 2A in each direction from starting conformation.
+dev_y_translate = 6
+dev_z_translate = 6
 
-dev_alpha_rotate = 10 # Similar to translate, just this is the total angle in degree to be screened for this DF.
-dev_beta_rotate = 10
-dev_gamma_rotate = 10
+dev_alpha_rotate = 20 # Similar to translate, just this is the total angle in degree to be screened for this DF.
+dev_beta_rotate = 20
+dev_gamma_rotate = 20
 
 jump_to_move = 1
 
@@ -207,10 +207,12 @@ def get_search_time(stream_in):
 
 hitlist = []
 print('Starting acutal search through master library.')
-for file in query_pds_list[0:20]: #TEMP: This just looks at the first 2 structures.
+searchcounter = 0
+for file in query_pds_list:
     print ('Starting search for query sequence %s' %(file))
     struct_number = int(file[:-4].split('_')[-1])
     search = subprocess.Popen(['%smaster' %(master_program_folder), '--query', '%s' %(file), '--targetList', 'pds_library.txt', '--rmsdCut', '1.2'], stdout = subprocess.PIPE) #optional --bbRMSD to search full backbone RMSD vs just C alpha
+    searchcounter += 1
     out,errors = search.communicate()
     print get_search_time(out) #This just prints out the search time. More interesting for debugging. Sacrifice for speed later.
     try:
@@ -220,7 +222,9 @@ for file in query_pds_list[0:20]: #TEMP: This just looks at the first 2 structur
     except:
         hitlist.append([0,0,struct_number])
         hitlist[-1].extend(structure_dict[struct_number])
-
+    if divmod(searchcounter,100)[1] == 0: #This spits out some partial solutions every 100 searches. Just to get a bit of an output while it is running.
+        df = pd.DataFrame(hitlist, columns=['hits','RMSD','number','x','y','z','alpha','beta','gamma']).set_index('number')
+        df.to_csv('hitlist.csv')
 
 df = pd.DataFrame(hitlist, columns=['hits','RMSD','number','x','y','z','alpha','beta','gamma']).set_index('number')
 df.to_csv('hitlist.csv')
