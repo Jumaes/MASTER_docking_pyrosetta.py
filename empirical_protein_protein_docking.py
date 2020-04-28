@@ -18,6 +18,7 @@ from rosetta.numeric import xyzVector_double_t
 from pyrosetta.rosetta.protocols.geometry import centroids_by_jump
 
 import numpy as np
+import pandas as pd
 
 import glob
 
@@ -182,7 +183,7 @@ except:
 query_pds_list = glob.glob(query_pds_subfolder+'*.pds')
 library_file_list = glob.glob('%s*.pds' %(query_library_path))
 with open('pds_library.txt','w') as lib_out:
-    for x in range(0,len(library_file_list),100): #TEMP: This makes a library of 1/10th of the actual size for test purposes.
+    for x in range(0,len(library_file_list)):
         lib_out.write(library_file_list[x] + '\n')
 
 def extract_number_of_hits(stream_in):
@@ -216,14 +217,16 @@ for file in query_pds_list[0:20]: #TEMP: This just looks at the first 2 structur
     print ('Now printing saved sys out:'+'#'*100)
     try:
         out = extract_number_of_hits(search)
-        hitlist.append([len(out),np.array(out).mean()])
+        hitlist.append([len(out),np.array(out).mean(),struct_number])
         hitlist[-1].extend(structure_dict[struct_number])
     except:
-        hitlist.append([0,0])
+        hitlist.append([0,0,struct_number])
         hitlist[-1].extend(structure_dict[struct_number])
 
+df = pd.DataFrame(hitlist, columns=['hits','RMSD','number','x','y','z','alpha','beta','gamma']).set_index('number')
+df = df.set_index('number')
+df.to_csv('hitlist.csv')
 
-for item in hitlist: print (item)
 
 
 #TODO: Need to take the system output from master, then throw away all until 'Search completed' then count the lines until 'Output completed'
