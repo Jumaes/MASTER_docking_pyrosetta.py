@@ -17,9 +17,11 @@ from rosetta import *
 from rosetta.numeric import xyzVector_double_t
 from pyrosetta.rosetta.protocols.geometry import centroids_by_jump
 
-import numpy
+import numpy as np
 
 import glob
+
+import subprocess
 
 init()
 
@@ -32,6 +34,7 @@ input_number_of_conformations = 1000 #Number of different conformations that sho
 subfolder = 'pdb_models/'
 master_program_folder = '/media/tezcanlab/Data/Julian/programs/master/master-v1.3.1/'
 query_pds_subfolder = 'query_pds_files/'
+query_library_path = '/media/tezcanlab/Data/PDBdata/70ident_20200423/master_pds_database/'
 
 #Note: For the moment the axes and angles will just be applied to the jump and they are most likely not global x,y,z coordinates or angles, but might be local. If control over axes/angles is desired, might need to be taken care off later.
 # If a DF should not be designable, just put 0.
@@ -144,6 +147,9 @@ try:
 except:
     pass
 
+structure_dict = {}
+
+print ('Now preparing structures with modified geometry.')
 counter = 0
 for x in x_steps:
     workpose = move_pose(workpose,jump_to_move,x,0,0,0,0,0)
@@ -158,6 +164,7 @@ for x in x_steps:
                     for g in g_steps:
                         workpose = move_pose(workpose,jump_to_move,0,0,0,0,0,g)
                         workpose.dump_pdb('%s%s_%s.pdb' %(subfolder, input_pdb[:-4],counter))
+                        structure_dict[counter] = [x,y,z,a,b,g]
                         with open('%s%s_%s.pdb' %(subfolder, input_pdb[:-4],counter),'a') as fout:
                             fout.write('REMARK %f %f %f %f %f %f \n' %(x,y,z,a,b,g))
                         counter += 1
@@ -169,24 +176,55 @@ try:
 except:
     pass
 
-for file in query_pdbs_list: # Next line makes a query pds file from every pdb file and puts the pds files into the new subfolder. That's pretty fast with several files per seconds.
-    os.system('%screatePDS --type query --pdb %s --pds %s%s.pds' %(master_program_folder,file, query_pds_subfolder,file[:-4].split('/')[-1]))
+#for file in query_pdbs_list: # Next line makes a query pds file from every pdb file and puts the pds files into the new subfolder. That's pretty fast with several files per seconds.
+#    os.system('%screatePDS --type query --pdb %s --pds %s%s.pds' %(master_program_folder,file, query_pds_subfolder,file[:-4].split('/')[-1]))
 
 query_pds_list = glob.glob(query_pds_subfolder+'*.pds')
-library_file_list = #TODO!!!
-for file in query_pds_list:
-    os.system('%smaster --query %s --targetList %s --rmsdCut  ' %(file,library_file_list))
+library_file_list = glob.glob('%s*.pds' %(query_library_path))
+with open('pds_library.txt','w') as lib_out:
+    for x in range(0,len(library_file_list),100): #TEMP: This makes a library of 1/10th of the actual size for test purposes.
+        lib_out.write(library_file_list[x] + '\n')
+
+def extract_number_of_hits(stream_in):
+    Hits = []
+    Found = False
+    Done = False
+    while True:
+        line = stream_in.stdout.readline()
+        if line.startswith('Output completed'):
+            Done = True
+        if Done:
+            break
+        if Found:
+            Hits.append(float(line.split()[0]))
+        if line.startswith('Search completed'):
+            Found = True
+        if Done:
+            break
+        elif not line:
+            break
+    return (Hits)
 
 
-'''
-workpose.dump_pdb('%s%s_%s_%s_%s_%s_%s.pdb', %s(subfolder,input_pdb,x,y,z,a,b,g))
+hitlist = []
+print('Starting acutal search through master library.')
+for file in query_pds_list[0:20]: #TEMP: This just looks at the first 2 structures.
+    print ('Starting search for query sequence %s' %(file))
+    struct_number = int(file[:-4].split('_')[-1])
+    search = subprocess.Popen(['%smaster' %(master_program_folder), '--query', '%s' %(file), '--targetList', 'pds_library.txt', '--rmsdCut', '1.2'], stdout = subprocess.PIPE) #optional --bbRMSD to search full backbone RMSD vs just C alpha
+    search.wait()
+    print ('Now printing saved sys out:'+'#'*100)
+    try:
+        out = extract_number_of_hits(search)
+        hitlist.append([len(out),np.array(out).mean()])
+        hitlist[-1].extend(structure_dict[struct_number])
+    except:
+        hitlist.append([0,0])
+        hitlist[-1].extend(structure_dict[struct_number])
 
-newthing = move_pose(start,1,10,0,0,0,0,0)
-newthing.dump_pdb('tester.pdb')
+
+for item in hitlist: print (item)
 
 
- stub: pyrosetta.rosetta.core.kinematics.Stub, axis: pyrosetta.rosetta.numeric.xyzVector_double_t, center: pyrosetta.rosetta.numeric.xyzVector_double_t, alpha: float
-
-    flexible_jump.translation_along_axis
-stub: pyrosetta.rosetta.core.kinematics.Stub, axis: pyrosetta.rosetta.numeric.xyzVector_double_t, dist: float
-'''
+#TODO: Need to take the system output from master, then throw away all until 'Search completed' then count the lines until 'Output completed'
+# Or keep those lines, split at whitespace, take 0 element and make mean and store number of lines plus mean for each structure, that was analysed. Maybe spit out a results table for every 100 strctures, just to not just lose the results.
