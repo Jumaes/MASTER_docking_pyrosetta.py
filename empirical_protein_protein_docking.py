@@ -183,28 +183,26 @@ except:
 query_pds_list = glob.glob(query_pds_subfolder+'*.pds')
 library_file_list = glob.glob('%s*.pds' %(query_library_path))
 with open('pds_library.txt','w') as lib_out:
-    for x in range(0,len(library_file_list)):
+    for x in range(0,len(library_file_list),10):
         lib_out.write(library_file_list[x] + '\n')
 
 def extract_number_of_hits(stream_in):
+    outlist = [item.split()[0] for item in stream_in.split('\n')[:-1]]
     Hits = []
-    Found = False
-    Done = False
-    while True:
-        line = stream_in.stdout.readline()
-        if line.startswith('Output completed'):
-            Done = True
-        if Done:
-            break
-        if Found:
-            Hits.append(float(line.split()[0]))
-        if line.startswith('Search completed'):
-            Found = True
-        if Done:
-            break
-        elif not line:
-            break
+    for item in outlist:
+        try:
+            rmsd = float(item)
+            Hits.append(rmsd)
+        except:
+            pass
     return (Hits)
+
+def get_search_time(stream_in):
+    outlist = stream_in.split('\n')[:-1]
+    for item in outlist:
+        if 'Search ' in item:
+            break
+    return item
 
 
 hitlist = []
@@ -213,18 +211,18 @@ for file in query_pds_list[0:20]: #TEMP: This just looks at the first 2 structur
     print ('Starting search for query sequence %s' %(file))
     struct_number = int(file[:-4].split('_')[-1])
     search = subprocess.Popen(['%smaster' %(master_program_folder), '--query', '%s' %(file), '--targetList', 'pds_library.txt', '--rmsdCut', '1.2'], stdout = subprocess.PIPE) #optional --bbRMSD to search full backbone RMSD vs just C alpha
-    search.wait()
-    print ('Now printing saved sys out:'+'#'*100)
+    out,errors = search.communicate()
+    print get_search_time(out) #This just prints out the search time. More interesting for debugging. Sacrifice for speed later.
     try:
-        out = extract_number_of_hits(search)
-        hitlist.append([len(out),np.array(out).mean(),struct_number])
+        outhits = extract_number_of_hits(out)
+        hitlist.append([len(outhits),np.array(outhits).mean(),struct_number])
         hitlist[-1].extend(structure_dict[struct_number])
     except:
         hitlist.append([0,0,struct_number])
         hitlist[-1].extend(structure_dict[struct_number])
 
+
 df = pd.DataFrame(hitlist, columns=['hits','RMSD','number','x','y','z','alpha','beta','gamma']).set_index('number')
-df = df.set_index('number')
 df.to_csv('hitlist.csv')
 
 
