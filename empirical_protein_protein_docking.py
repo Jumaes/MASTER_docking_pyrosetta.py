@@ -11,10 +11,11 @@
 #Step3: Combined all the numbers of hits with the different parameters of DF into a massive pandas DataFrame and produce some maybe graphical output.
 
 import math
-
+from math import *
 from pyrosetta import *
 from rosetta import *
 from rosetta.numeric import xyzVector_double_t
+from rosetta.numeric import z_rotation_matrix_degrees
 from pyrosetta.rosetta.protocols.geometry import centroids_by_jump
 
 import numpy as np
@@ -31,7 +32,7 @@ init()
 
 #Input Parameters
 input_pdb = 'NCFus_model2_parts.pdb'  #File with input conformation of the minimized structural motifs.
-input_number_of_conformations = 10000 #Number of different conformations that should be generated and tested. This will be crucial to determine how long it will take.
+input_number_of_conformations = 5000 #Number of different conformations that should be generated and tested. This will be crucial to determine how long it will take.
 subfolder = 'pdb_models/'
 master_program_folder = '/media/tezcanlab/Data/Julian/programs/master/master-v1.3.1/'
 query_pds_subfolder = 'query_pds_files/'
@@ -43,9 +44,9 @@ dev_x_translate = 6 #Total translation in x axis in A. Together with number_of_c
 dev_y_translate = 6
 dev_z_translate = 6
 
-dev_alpha_rotate = 20 # Similar to translate, just this is the total angle in degree to be screened for this DF.
-dev_beta_rotate = 20
-dev_gamma_rotate = 20
+dev_alpha_rotate = 10 # Similar to translate, just this is the total angle in degree to be screened for this DF.
+dev_beta_rotate = 10
+dev_gamma_rotate = 10
 
 jump_to_move = 1
 
@@ -100,11 +101,45 @@ def one_or_zero(numberin):
         output = 0
     return output
 
-def move_pose(inputpose,inputjump,movex,movey,movez,rota,rotb,rotg):
+# Sounds a bit insane, but in the latest rosetta version the functions to make a rotation matrix for rotation around x,y or z axis from a degree value are not there anymore. So make that myself after looking it up.
+def rotation_matrix_from_alpha_degree(angle):
+    radangle= radians(angle)
+    matrix = rosetta.numeric.xyzMatrix_double_t.cols(1,0,0,0,cos(radangle),-sin(radangle),0,sin(radangle),cos(radangle))
+    return matrix
+
+def rotation_matrix_from_beta_degree(angle):
+    radangle= radians(angle)
+    matrix = rosetta.numeric.xyzMatrix_double_t.cols(cos(radangle),0,sin(radangle),0,1,0,-sin(radangle),0,cos(radangle))
+    return matrix
+
+def rotation_matrix_from_gamma_degree(angle):
+    radangle= radians(angle)
+    matrix = rosetta.numeric.xyzMatrix_double_t.cols(cos(radangle),-sin(radangle),0,sin(radangle),cos(radangle),0,0,0,1)
+    return matrix
+
+def matrixmultiplication(m1,m2):
+	#Yes, seriously. The rosetta.numeric.xyzMatrix_double_t object has no matrix multiplication function ?!?!?!?!?!?! It should have, but it doesn't.
+	#So just converting that object into a list of lists, then using numpy to do the matrix multiplication and then convert that back into that stupid object.
+	#I mean, really...!?!?!?
+	#Ah and also that object doesn't support indexing, so that elements have to be called with matrix.row() and that vector object can then be indexed like any normal python object.
+	list1=[['a']*3,['a']*3,['a']*3]
+	for i in range(0,3):
+		for k in range(0,3):
+			list1[i][k]=m1.row(i+1)[k]
+	list2=[['a']*3,['a']*3,['a']*3]
+	for i in range(0,3):
+		for k in range(0,3):
+			list2[i][k]=m2.row(i+1)[k]
+	#Actual multiplcation is done by using .dot of numpy.
+	p=np.dot(list1,list2)
+    #And transform it back into that ridiculous rosetta.numeric.xyzMatrix_double_t object
+	product=rosetta.numeric.xyzMatrix_double_t.cols(p[0][0],p[0][1],p[0][2],p[1][0],p[1][1],p[1][2],p[2][0],p[2][1],p[2][2])
+	return product
+
+
+def rotate_pose(inputpose,inputjump,rota,rotb,rotg):
     functionpose = Pose()
     functionpose.assign(inputpose)
-    angle = rota+rotb+rotg #Assuming that only one of them is not 0 anyways.
-    distance = movex + movey + movez
     # Relatively complicated movers.
     # We need the jumpobject corresponding to the given jumpnumber.
     flexible_jump=functionpose.jump(inputjump)
@@ -115,26 +150,51 @@ def move_pose(inputpose,inputjump,movex,movey,movez,rota,rotb,rotg):
     upstream_dummy=xyzVector_double_t() #Just need to define that these are vectors of that weird type.
     downstream_dummy=xyzVector_double_t()
     centroids_by_jump(functionpose,inputjump,upstream_dummy,downstream_dummy) #This function does the job for us.
-    #Rotation axis is only 1 in the one direction, where we wanna rotate around. I.e. the only angle, that is not 0.
-    rota_axis=xyzVector_double_t(one_or_zero(rota),one_or_zero(rotb),one_or_zero(rotg))
-    #print ('Attempting to rotate around axis %s by %s degree.' %(rota_axis, angle))
-    # rotation_by_axis works with stub: pyrosetta.rosetta.core.kinematics.Stub, axis: pyrosetta.rosetta.numeric.xyzVector_double_t, center: pyrosetta.rosetta.numeric.xyzVector_double_t, alpha: float
-    if angle != 0: # Seems applying both at the same time on the jump doesn't work. Also means the function can only be used with either angle or distance, but in the way it's going to be used, that's ok.
-        flexible_jump.rotation_by_axis(upstream_stub, rota_axis,upstream_dummy,angle)
-    translation_axis = xyzVector_double_t(one_or_zero(movex),one_or_zero(movey),one_or_zero(movez))
-    #print ('Attempting to translate along axis %s by %s angstrom.' %(translation_axis, distance))
-    #stub: pyrosetta.rosetta.core.kinematics.Stub, axis: pyrosetta.rosetta.numeric.xyzVector_double_t, dist: float
-    if distance != 0:
-        flexible_jump.translation_along_axis(upstream_stub,translation_axis,distance)
-    #print (flexible_jump)
-    #print (functionpose.residue(20))
-    functionpose.set_jump(inputjump, flexible_jump ) # This is actually applying the jump to the pose.
-    #print (functionpose.residue(20))
-    centroids_by_jump(functionpose,inputjump,upstream_dummy,downstream_dummy)
+    # After testing a rotation by axis function, which didn't really work well, now back to Maxtrix rotation from the Negative Docking script.
+    # Except rosetta.numeric seems to not have the functions z_rotation_matrix_degrees_double_t anymore. z_rotation_matrix_degrees seems to be the thing now.
+    # But there are no equivalents for x and y. So just made my own.
+    matrixA=rotation_matrix_from_alpha_degree(rota) #This is  the pyrosetta function. The original mover used a c++ function called numeric.z_rotation_matrix_degrees, which doesn't seem to exist in pyrosetta. Hope this here is the replacement.
+    matrixB=rotation_matrix_from_beta_degree(rotb)
+    matrixG=rotation_matrix_from_gamma_degree(rotg)
+    # And now using my home-made matrix-multiplication function to get the total resulting rotation matrix.
+    rotation_matrix=matrixmultiplication(matrixmultiplication(matrixA,matrixB),matrixG)
+    flexible_jump.rotation_by_matrix(upstream_stub, upstream_dummy,  rotation_matrix)
+    functionpose.set_jump(inputjump, flexible_jump)
+    centroids_by_jump(functionpose,inputjump,upstream_dummy,downstream_dummy) #seems necessary to do that after the rotation. Maybe updates something.
     return functionpose
 
+
+def translate_pose(inputpose,inputjump,movex,movey,movez):
+    functionpose = Pose()
+    functionpose.assign(inputpose)
+    # Relatively complicated movers.
+    # We need the jumpobject corresponding to the given jumpnumber.
+    flexible_jump=functionpose.jump(inputjump)
+    upstream_dummy=xyzVector_double_t() #Just need to define that these are vectors of that weird type.
+    downstream_dummy=xyzVector_double_t()
+    centroids_by_jump(functionpose,inputjump,upstream_dummy,downstream_dummy)
+    # Had lots of problems with the translation by axis function. Instead use get_translation as vector for this jump, then just add the intended translation, and then set the sum as new translation vector for this jump.
+    # This also allows for one operation at the same time for all three directions. Much better.
+    before_translate = flexible_jump.get_translation()
+    translate_vec = xyzVector_double_t(movex, movey, movez)
+    after_translate = before_translate + translate_vec
+    #print ('New translation vector for the jump is: ')
+    #print (after_translate)
+    flexible_jump.set_translation(after_translate)
+    functionpose.set_jump(inputjump, flexible_jump ) # This is actually applying the jump to the pose.
+    #print (functionpose.residue(20))
+    centroids_by_jump(functionpose,inputjump,upstream_dummy,downstream_dummy) #Maybe necessary to do that here. Maybe updates something.
+    return functionpose
+
+
+
+
+
 def make_steps(translate,steps):
-    return [(-float(translate)/2)+float(translate)/(float(steps)-1)*number for number in range(0,steps)]
+    if translate == 0:
+        return [0] # Otherwise even for a DF with 0 rotation/translation, it still is going to make a list with several members all being 0.
+    else:
+        return [(-float(translate)/2)+float(translate)/(float(steps)-1)*number for number in range(0,steps)]
 
 x_steps = make_steps(dev_x_translate,steps_per_DF)
 y_steps = make_steps(dev_y_translate,steps_per_DF)
@@ -153,22 +213,20 @@ structure_dict = {}
 print ('Now preparing structures with modified geometry.')
 counter = 0
 for x in x_steps:
-    workpose = move_pose(workpose,jump_to_move,x,0,0,0,0,0)
     for y in y_steps:
-        workpose = move_pose(workpose,jump_to_move,0,y,0,0,0,0)
         for z in z_steps:
-            workpose = move_pose(workpose,jump_to_move,0,0,z,0,0,0)
+            trans_pose = translate_pose(workpose,jump_to_move,x,y,z)
+            #trans_pose.dump_pdb('%s%s_%s.pdb' %(subfolder, input_pdb[:-4],counter))
             for a in a_steps:
-                workpose = move_pose(workpose,jump_to_move,0,0,0,a,0,0)
                 for b in b_steps:
-                    workpose = move_pose(workpose,jump_to_move,0,0,0,0,b,0)
                     for g in g_steps:
-                        workpose = move_pose(workpose,jump_to_move,0,0,0,0,0,g)
-                        workpose.dump_pdb('%s%s_%s.pdb' %(subfolder, input_pdb[:-4],counter))
+                        rota_trans_pose = rotate_pose(trans_pose,jump_to_move,a,b,g)
+                        rota_trans_pose.dump_pdb('%s%s_%s.pdb' %(subfolder, input_pdb[:-4],counter))
                         structure_dict[counter] = [x,y,z,a,b,g]
                         with open('%s%s_%s.pdb' %(subfolder, input_pdb[:-4],counter),'a') as fout:
                             fout.write('REMARK %f %f %f %f %f %f \n' %(x,y,z,a,b,g))
                         counter += 1
+
 
 #Step2: Use MASTER to search for hits within a very narrow RMSD for every one of the pdb files from Step1. The Library against which is searched will be a non-redundant subset of the PDB with roughly 40 000 structures. Write out a number for the hits for each structure (potentially several different RMSD cutoffs for this?).
 query_pdbs_list = glob.glob(subfolder+'*.pdb') # Get a list of all actually created pdb files.
@@ -177,8 +235,8 @@ try:
 except:
     pass
 
-#for file in query_pdbs_list: # Next line makes a query pds file from every pdb file and puts the pds files into the new subfolder. That's pretty fast with several files per seconds.
-#    os.system('%screatePDS --type query --pdb %s --pds %s%s.pds' %(master_program_folder,file, query_pds_subfolder,file[:-4].split('/')[-1]))
+for file in query_pdbs_list: # Next line makes a query pds file from every pdb file and puts the pds files into the new subfolder. That's pretty fast with several files per seconds.
+    os.system('%screatePDS --type query --pdb %s --pds %s%s.pds' %(master_program_folder,file, query_pds_subfolder,file[:-4].split('/')[-1]))
 
 query_pds_list = glob.glob(query_pds_subfolder+'*.pds')
 library_file_list = glob.glob('%s*.pds' %(query_library_path))
