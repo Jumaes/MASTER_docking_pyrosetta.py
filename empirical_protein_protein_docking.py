@@ -271,9 +271,11 @@ def mastersearch(pdsin):
     print get_search_time(out) #This just prints out the search time. More interesting for debugging. Sacrifice for speed later.
     try:
         outhits = extract_rmsd_each_hit(out)
-        outlist = [len(outhits),np.array(outhits).mean(),struct_number,structure_dict[struct_number]]
+        outlist = [len(outhits),np.array(outhits).mean(),struct_number]
+        outlist.extend(structure_dict[struct_number])
     except:
-        outlist = [0,0,struct_number,structure_dict[struct_number]]
+        outlist = [0,0,struct_number]
+        outlist.extend(structure_dict[struct_number])
     return outlist
 
 hitlist = []
