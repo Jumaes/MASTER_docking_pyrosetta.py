@@ -25,6 +25,8 @@ import glob
 
 import subprocess
 
+import pickle
+
 init()
 
 #Step 1:
@@ -227,6 +229,9 @@ for x in x_steps:
                             fout.write('REMARK %f %f %f %f %f %f \n' %(x,y,z,a,b,g))
                         counter += 1
 
+                        #Exporting the output as a pickle dictionary, because I need to read it in in the second halfs of the program split over different processors.
+with open('struc_dict.pickle','wb') as dictout:
+    pickle.dump(structure_dict, dictout)
 
 #Step2: Use MASTER to search for hits within a very narrow RMSD for every one of the pdb files from Step1. The Library against which is searched will be a non-redundant subset of the PDB with roughly 40 000 structures. Write out a number for the hits for each structure (potentially several different RMSD cutoffs for this?).
 query_pdbs_list = glob.glob(subfolder+'*.pdb') # Get a list of all actually created pdb files.

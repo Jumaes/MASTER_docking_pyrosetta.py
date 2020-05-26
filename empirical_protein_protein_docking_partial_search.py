@@ -27,13 +27,16 @@ import glob
 
 import subprocess
 
-if len(sys.argv)=1:
+import pickle
+
+if len(sys.argv)==1:
     print ('This is the subscript, which only makes the actual search. So the setup script should have been run already.')
     print ('This script needs to be run with SCRIPTNAME X Y with Y being the number of parts the whole querylist shold be split in and X being the Xth part.')
     print ('So SCRIPTNAME 1 10 would split the querylist into 10 parts and run only on the 1st of them. Clearly, you would want to start parallel runs with SCRIPTNAME 2 10 .... etc until SCRIPTNAME 10 10')
-
-part = sys.argv[1]
-parts = sys.argv[2]
+    exit()
+else:
+    part = int(sys.argv[1])
+    parts = int(sys.argv[2])
 
 
 #Input Parameters
@@ -52,7 +55,9 @@ def get_number(infile):
 
 query_pds_list.sort(key = get_number)
 
-
+#Importing the structure dictionary as a pickle dictionary, which was created in the first setup part of the script.
+with open('struc_dict.pickle','rb') as dictin:
+    structure_dict = pickle.load(dictin)
 
 
 def extract_rmsd_each_hit(stream_in):
@@ -82,14 +87,21 @@ def mastersearch(pdsin):
     print get_search_time(out) #This just prints out the search time. More interesting for debugging. Sacrifice for speed later.
     try:
         outhits = extract_rmsd_each_hit(out)
-        outlist = [len(outhits),np.array(outhits).mean(),struct_number,structure_dict[struct_number]]
+        outlist = [len(outhits),np.array(outhits).mean(),struct_number]
+        outlist.extend(structure_dict[struct_number])
     except:
-        outlist = [0,0,struct_number,structure_dict[struct_number]]
+        outlist = [0,0,struct_number]
+        outlist.extend(structure_dict[struct_number])
     return outlist
 
+print ('Looking at part %s of %s total parts of a total set of %s query structures.' %(part,parts, len(query_pds_list)))
 per_part = len(query_pds_list)/parts #Keep in mind that this is actually a floor division if two integers are passed; means it returnts the smallest integer, which still divides.
 if not part == parts:
     partial_query_pds_list = query_pds_list[(part-1)*per_part:part*per_part]
+else:
+    partial_query_pds_list =  query_pds_list[(part-1)*per_part:len(query_pds_list)]
+
+print ('Partial list generated. This run will look at %s of a total of %s structures.' %(len(partial_query_pds_list), len(query_pds_list)))
 
 
 hitlist = []
@@ -101,10 +113,6 @@ for file in partial_query_pds_list:
     hitlist.append(results_query_one_structure_vs_database)
     if divmod(searchcounter,100)[1] == 0: #This spits out some partial solutions every 100 searches. Just to get a bit of an output while it is running.
         df = pd.DataFrame(hitlist, columns=['hits','RMSD','number','x','y','z','alpha','beta','gamma']).set_index('number')
-        df.to_csv('hitlist.csv')
-
-
-
-
+        df.to_csv('hitlist_%s.csv' %(part))
 df = pd.DataFrame(hitlist, columns=['hits','RMSD','number','x','y','z','alpha','beta','gamma']).set_index('number')
-df.to_csv('hitlist.csv')
+df.to_csv('hitlist_%s.csv' %(part))
